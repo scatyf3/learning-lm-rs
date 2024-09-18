@@ -56,8 +56,6 @@ impl LLamaParams<f32> {
         });
 
 
-        println!("{}",config.num_hidden_layers);
-
         //tensor or vector of tensor
         LLamaParams {
             embedding_table: get_tensor("lm_head.weight"),

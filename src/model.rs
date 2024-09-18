@@ -147,37 +147,25 @@ impl Llama<f32> {
         temperature: f32,
     ) -> Vec<u32>{
         let mut result = Vec::<u32>::new();
-        
-        //初始化一个会被复用的kvcache
         let mut cache = self.new_cache();
-
-        //多轮推理的循环
         //prefill
-        //TODO，是否需要添加一个bos_token_id
-        //但是，这里并不是最原初的tensor的含义，它只是token编号的序列，需要在forward里？！转换成词向量？
         let prompt = Tensor::<u32>::new(token_ids.to_vec(), &vec![max_len]);
         let first_logit=self.forward(&prompt, &mut cache);
         let first_token = OP::random_sample(&first_logit, top_p, top_k, temperature);
 
-        //first_logit.print();
-        //println!("{}",first_token); //✅
-
         //generate
         result.push(first_token);
         let mut result_tensor = Tensor::<u32>::new(vec![first_token], &vec![1]);
-        for _ in max_len..self.max_seq_len {
-            //有个问题，前面的forward好像没事，到这里就出问题了，所以prefill和decode可能要用同一个tensor？
+        for _ in prompt.size()..self.max_seq_len { 
             let logit = self.forward(&result_tensor, &mut cache);
-            //logit.print();
             let cur_token = OP::random_sample(&logit, top_p, top_k, temperature);
             if cur_token == self.eos_token_id {
                 break;
             }
-            //TODO: 迭代修改每次forward的输入
             result_tensor = Tensor::<u32>::new(vec![cur_token], &vec![1]);
             result.push(cur_token);
         }
-        result //这里的result还需要decode，感觉是纯粹tokenid
+        result
     }
 }
 
@@ -360,12 +348,7 @@ pub fn test_load_safetensors() {
 }
 
 
-#[test]
-pub fn test_self_attn() {
-    //见attn_data
 
-
-}
 
 #[test]
 fn test_forward(){
