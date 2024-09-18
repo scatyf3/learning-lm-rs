@@ -75,29 +75,22 @@ impl Llama<f32> {
         // Computation Starts Here
         // Embedding lookup
         //input (,seq_len) => residual (seq_len,self.d)
-        //根据input的token_id，全都转换为词向量，所以input必须是全满的？
         OP::gather(&mut residual, input, &self.params.embedding_table);
-        //residual.print(); //✅
 
         for layer in 0..self.n_layers {
-            println!("===layer{}===",layer);
             OP::rms_norm(
                 &mut hidden_states,
                 &residual,
                 &self.params.rms_att_w[layer],
                 self.eps,
             );
-            //hidden_states.print(); //✅
 
             let q = (&mut q_buf).reshape(&vec![seq_len, self.n_q_h * self.dqkv]); // (seq, n_h * dqkv)
             let k = &mut cache.k_cache(layer, past_seq_len); // (seq, n_kv_h * dqkv)
             let v = &mut cache.v_cache(layer, past_seq_len); // (seq, n_kv_h * dqkv)
             OP::matmul_transb(q, 0., &hidden_states, &self.params.wq[layer], 1.0); 
-            //q.print();//✅
             OP::matmul_transb(k, 0., &hidden_states, &self.params.wk[layer], 1.0);
             OP::matmul_transb(v, 0., &hidden_states, &self.params.wv[layer], 1.0);
-            //k.print();
-            //v.print(); ✅
             OP::rope(
                 q.reshape(&vec![seq_len, self.n_q_h, self.dqkv]),
                 past_seq_len,
@@ -108,52 +101,17 @@ impl Llama<f32> {
                 past_seq_len,
                 self.rope_theta,
             );
-            //奇怪，在python里，hook显示的结果，rope似乎输入的是V
-            //q.print();
-            //k.print();
 
             let full_k = &mut cache.k_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
             let full_v = &mut cache.v_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
-
-            //start of my code            
+          
             self_attention(&mut hidden_states,&mut att_scores,q,full_k,full_v,self.n_kv_h,n_groups,seq_len,total_seq_len,self.dqkv);
-
-            //hidden_states.print(); 
-            //att_scores.print();
-
-            //x = x @ O_weight.T
-            //residual = x + residual
-            //x (seq, n_kv_h * n_groups * dqkv)
-            //O_weight self_attn.o_proj.weight 128x128
-            //residual (seq_len,d)
-            //为什么会和total_seq_len有关系...
-
-
-            println!("===down proj output of self attn & residual===");
-            hidden_states.print();
-            println!("x");
-            //&self.params.wo[layer].print();
-            println!("params");
-            println!("+");
-            residual.print();
-            println!("=");
            
-            //C=\alpha AB^T + \beta C
-            OP::matmul_transb(&mut residual, 1.0 , &hidden_states, &self.params.wo[layer], 1.0);
             
-            residual.print();//✅
-
-
+            OP::matmul_transb(&mut residual, 1.0 , &hidden_states, &self.params.wo[layer], 1.0);
 
             //mlp
-            println!("===MLP&residual===");
-            hidden_states.print();
-            println!("and MLP hidden state");
-            println!("+");
-            residual.print();
             mlp(&mut residual , &mut hidden_states,&mut gate_buf,&mut up_buf,&self.params.w_up[layer],&self.params.w_down[layer],&self.params.w_gate[layer],&self.params.rms_ffn_w[layer],self.eps);
-            println!("=");
-            residual.print();
             //end of my code         
         }
 
@@ -188,8 +146,6 @@ impl Llama<f32> {
         top_k: u32,
         temperature: f32,
     ) -> Vec<u32>{
-        //max len = 500
-        //max_seq_len = 512?
         let mut result = Vec::<u32>::new();
         
         //初始化一个会被复用的kvcache
@@ -240,55 +196,28 @@ fn self_attention(
     //score = Q @ K.T / np.sqrt(dim)
     //q  (seq, n_kv_h * n_groups * dqkv)
     //k (total_seq,n_kv_h * dqkv)
-    //k^T (n_kv_h * dqkv, total_seq)
+    // k^T (n_kv_h * dqkv, total_seq)
     // slice of q : (seq,dqkv)
     // slice of k : (total_seq,dqkv)
-    // 但问题是怎么切片
-    //resule: (seq, total_seq)
-
-    //print!("{},{}",n_kv_h,n_groups);//4,2
-    
+    //resule: (seq, total_seq)   
     let mut attn = Tensor::<f32>::default(&vec![seq_len,total_seq_len]);
     for i in 0..n_kv_h {
         //get slice of k
-        //let start_index_k = i * dqkv * total_seq_len;
-        //let cur_k=k.slice(start_index_k, &vec![total_seq_len,dqkv]);
         let slices_k: Vec<(usize, usize)> = vec![(0, total_seq_len), (i*dqkv, (i+1)*dqkv)]; //(0,0咋办)
         let cur_k = k.better_slice(&slices_k);
-        //cur_k.print();
-        println!("===Q * K^T===");
         for j in 0..n_groups{
-            //let start_index_q = i * dqkv * j * seq_len;
-            //let cur_q = q.slice(start_index_q, &vec![seq_len,dqkv]);
             // (seq, n_kv_h * n_groups, dqkv) => (seq,dqkv)
-            // q: shape: [6, 8, 16] 
-            println!("当前的kv head是：{},当前的注意力组是：{}",i,j);
             let slices_q: Vec<(usize, usize)> = vec![(0, seq_len), (i*n_groups+j,i*n_groups+(j+1)) ,(0,dqkv)]; 
             let mut cur_q = q.better_slice(&slices_q);
-            //cur_q.print();
             cur_q.reshape(&vec![seq_len,dqkv]);
-            //cur_q.print();
             OP::matmul_transb(&mut attn, 0.0, &cur_q, &cur_k, 1.0);
-            //div
             let att_scores_data = unsafe{ att_scores.data_mut()};
-            //{  
             let attn_data = unsafe { attn.data_mut() };
+            //TODO: intrinsics
             for k in 0..(seq_len*total_seq_len){
                 attn_data[k] = attn_data[k] / (dqkv as f32).sqrt();
             }
-            //}
 
-            /*
-            cur_q.print();
-            println!("x");
-            cur_k.print();
-            println!("=");
-            attn.print();
-             */
-            
-
-
-            //let attn_data = unsafe { attn.data_mut() };
             let att_scores_index = i * n_groups * seq_len * total_seq_len + j * seq_len * total_seq_len;
             for m in 0..seq_len{
                 for n in 0..total_seq_len{
@@ -300,68 +229,40 @@ fn self_attention(
 
         }
     }
-    //截止这里正确，但是下一个layer又不对了🤔
-
-    println!("total attention score after Q*K^T");
-    att_scores.print();
 
     //attn = softmax(score)
     OP::masked_softmax(att_scores);
     
-    //x = attn @ V
-    //attn (n_kv_h, n_groups, seq, total_seq)
-    //v (total_seq, n_kv_h * dqkv)
-    //x, aka hidden state  (seq, n_kv_h * n_groups * dqkv)
+    // x = attn @ V
+    // vattn (n_kv_h, n_groups, seq, total_seq)
+    // v (total_seq, n_kv_h * dqkv)
+    // x, aka hidden state  (seq, n_kv_h * n_groups * dqkv)
     // attn slice (seq,total_seq)
     // v slice : (total_seq,dqkv)
-    //这里好像不是matmul_transb 啊这
     // x slice: (seq,dqkv)
 
-    
     let mut x = Tensor::<f32>::default( &vec![seq_len,dqkv]);
 
-    println!("=== attn * V===");
     for i in 0..n_kv_h {
-        //let cur_v=v.slice(i*dqkv*total_seq_len, &vec![total_seq_len,dqkv]);
-        //v.print(); [6, 64]
         let slices_v: Vec<(usize, usize)> = vec![(0, total_seq_len), (i*dqkv, (i+1)*dqkv)]; //(0,0咋办)
         let cur_v = v.better_slice(&slices_v);
         for j in 0..n_groups{
             let attn_slice = att_scores.slice(i*n_groups*seq_len*total_seq_len+j*seq_len*total_seq_len, &vec![seq_len,total_seq_len]);
             //(seq, total_seq) x (total_seq_len,dqkv) => (seq,dqkv)
-            //cur_v.print();
-            //attn_slice.print();
-            //OP::matmul_transb(&mut x, 0.0, &attn_slice, &cur_v, 1.0); 
-
-            println!("当前的kv head是：{},当前的注意力组是：{}",i,j);
             OP::matmul(&mut x,&attn_slice, &cur_v);
-            
-            attn_slice.print();
-            println!("x");
-            cur_v.print();
-            println!("=");
-            x.print();
-
-            
-
-            {
-                let hidden_states_data = unsafe {hidden_states.data_mut()};
-                for m in 0..seq_len{
-                    for n in 0..dqkv{
-                        //hidden_states_data(seq, n_kv_h * n_groups * dqkv)
-                        //x  (seq,dqkv)
-                        //TODO 我认为是index写回的问题...
-                        let hidden_states_index = n_kv_h * n_groups * m * dqkv +i*n_groups*dqkv+j*dqkv +n;
-                        hidden_states_data[hidden_states_index] = x.data()[m * dqkv + n]; // 从 x 中获取对应的值
-                    }
-                    
+            let hidden_states_data = unsafe {hidden_states.data_mut()};
+            for m in 0..seq_len{
+                for n in 0..dqkv{
+                    //hidden_states_data(seq, n_kv_h * n_groups * dqkv)
+                    //x  (seq,dqkv)
+                    let hidden_states_index = n_kv_h * n_groups * m * dqkv +i*n_groups*dqkv+j*dqkv +n;
+                    hidden_states_data[hidden_states_index] = x.data()[m * dqkv + n]; // 从 x 中获取对应的值
                 }
+                
             }
             
         }
     }
-    println!("final hidden state data");
-    hidden_states.print();
 }
 
 fn mlp(
