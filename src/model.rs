@@ -167,6 +167,37 @@ impl Llama<f32> {
         }
         result
     }
+
+    //基本类似generate，但kv cache保留🤔
+    pub fn chat(
+        &self,
+        token_ids: &[u32],
+        max_len: usize,
+        top_p: f32,
+        top_k: u32,
+        temperature: f32,
+        kv_cache: &mut KVCache<f32>,
+    ) -> Vec<u32>{
+        let mut result = Vec::<u32>::new();
+        //prefill
+        let prompt = Tensor::<u32>::new(token_ids.to_vec(), &vec![max_len]);
+        let first_logit=self.forward(&prompt, kv_cache);
+        let first_token = OP::random_sample(&first_logit, top_p, top_k, temperature);
+
+        //generate
+        result.push(first_token);
+        let mut result_tensor = Tensor::<u32>::new(vec![first_token], &vec![1]);
+        for _ in prompt.size()..self.max_seq_len { 
+            let logit = self.forward(&result_tensor, kv_cache);
+            let cur_token = OP::random_sample(&logit, top_p, top_k, temperature);
+            if cur_token == self.eos_token_id {
+                break;
+            }
+            result_tensor = Tensor::<u32>::new(vec![cur_token], &vec![1]);
+            result.push(cur_token);
+        }
+        result
+    }
 }
 
 fn self_attention(
