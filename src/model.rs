@@ -156,12 +156,13 @@ impl Llama<f32> {
         //generate
         result.push(first_token);
         let mut result_tensor = Tensor::<u32>::new(vec![first_token], &vec![1]);
-        for _ in prompt.size()..self.max_seq_len { 
+        for i in prompt.size()..self.max_seq_len { 
             let logit = self.forward(&result_tensor, &mut cache);
             let cur_token = OP::random_sample(&logit, top_p, top_k, temperature);
             if cur_token == self.eos_token_id {
                 break;
             }
+            println!("curent index is{} and curent token is {}",i,cur_token);
             result_tensor = Tensor::<u32>::new(vec![cur_token], &vec![1]);
             result.push(cur_token);
         }
@@ -187,13 +188,14 @@ impl Llama<f32> {
         //generate
         result.push(first_token);
         let mut result_tensor = Tensor::<u32>::new(vec![first_token], &vec![1]);
-        for _ in prompt.size()..self.max_seq_len { 
+        for i in prompt.size()..max_len { 
             let logit = self.forward(&result_tensor, kv_cache);
             let cur_token = OP::random_sample(&logit, top_p, top_k, temperature);
             if cur_token == self.eos_token_id {
                 break;
             }
             result_tensor = Tensor::<u32>::new(vec![cur_token], &vec![1]);
+            //println!("curent index is{} and curent token is {}",i,cur_token);
             result.push(cur_token);
         }
         result

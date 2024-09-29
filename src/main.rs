@@ -71,11 +71,47 @@ fn main() {
             let model_dir = PathBuf::from(project_dir).join("models").join("chat");
             let llama = model::Llama::<f32>::from_safetensors(&model_dir);
             let tokenizer = Tokenizer::from_file(model_dir.join("tokenizer.json")).unwrap();
+            let binding = tokenizer.encode("<|im_start|>system
+You are a highly knowledgeable and friendly assistant. Your goal is to understand and respond to user inquiries with clarity. Your interactions are always respectful, helpful, and focused on delivering the most accurate information to the user.<|im_end|>
+<|im_start|>user
+Hey! Got a question for you!<|im_end|>
+<|im_start|>assistant
+Sure! What's it?<|im_end|>
+<|im_start|>user
+What are some potential applications for quantum computing?<|im_end|>
+<|im_start|>assistant", true).unwrap();
+            let input_ids = binding.get_ids();
+            let output_ids = llama.generate(
+                input_ids,
+                500,
+                0.9,
+                4,
+                1.,
+            );
+            
+            for elem in &output_ids{
+                println!("{}",elem);
+            }
+            //greedy
+            //let output_ids = llama.generate(input_ids,500,1.0,1,1.);
+            println!("{}", tokenizer.decode(&output_ids, true).unwrap());
+
+
+
+            /*
+            一个可能不正确的尝试
             let mut kv_cache = llama.new_cache();
-            let mut t = Template::new(String::from("You are an imaginative story generator. Create engaging and creative stories based on user prompts."));
+            let mut t = Template::new(String::from("You are a highly knowledgeable and friendly assistant. Your goal is to understand and respond to user inquiries with clarity. Your interactions are always respectful, helpful, and focused on delivering the most accurate information to the user."));
             println!("{}", t.get_system_message());
-            let binding = tokenizer.encode(t.get_system_message(), true).unwrap();
-            let input_system_prompt = binding.get_ids();
+            
+
+            //32001 1587system 13<0x0A>\n ... 感觉不对啊！
+            for elem in  input_system_prompt{
+                println!("{}",elem);
+            }
+            //看看额外的token有没有被正确加载
+            assert!(input_system_prompt[0]==32001);
+            //assert!(input_system_prompt[1]==32001);
             //先forward system prompt
             llama.forward(&Tensor::<u32>::new(input_system_prompt.to_vec(), &vec![t.get_system_message().len()]), &mut kv_cache);
 
@@ -86,12 +122,23 @@ fn main() {
                 println!("{}", t.get_user_message());
                 let binding = tokenizer.encode(t.get_user_message(), true).unwrap();
                 let input_user_prompt = binding.get_ids();
-                let res = llama.chat(input_user_prompt, 500, 0.9, 4, 1., &mut kv_cache);
+                for elem in  input_user_prompt{
+                    println!("{}",elem);
+                }
+                let res = llama.chat(input_user_prompt, 256, 0.55, 35, 1., &mut kv_cache);
+                /*
+                for elem in &res{
+                    println!("{}",elem);
+                }
+                 */
+                
                 println!("{}", tokenizer.decode(&res, true).unwrap());
                 break;
             }
-            
-        }
+        
+             */
+        }    
     }
 
 }
+
