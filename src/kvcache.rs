@@ -41,3 +41,14 @@ impl<T: Default + Copy> KVCache<T> {
         self.length
     }
 }
+
+impl KVCache<f32> {
+    pub fn print(&self) {
+        for i in 0..self.k_cache.len(){
+            //println!("Current K Cache is");
+            self.k_cache[i].print();
+            //println!("Current V Cache is");
+            self.v_cache[i].print();
+        }
+    }
+}
